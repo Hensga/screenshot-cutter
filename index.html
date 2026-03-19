@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Screenshot Tool</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=DM+Sans:wght@400;500;600&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:#1a1a1e; --surface:#242428; --surface2:#2e2e33;
+    --border:#3a3a40; --text:#e4e4e7; --text-dim:#8a8a94;
+    --accent:#e85d5d; --blue:#5d8de8; --green:#5de88a;
+    --blue-dim:rgba(93,141,232,.15); --radius:6px;
+  }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; overflow:hidden; user-select:none; }
+
+  /* Toolbar */
+  .toolbar { display:flex; align-items:center; gap:8px; padding:10px 16px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; flex-wrap:wrap; }
+  .toolbar-group { display:flex; align-items:center; gap:4px; padding:0 8px; border-right:1px solid var(--border); }
+  .toolbar-group:last-child { border-right:none; }
+  .toolbar-label { font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim); margin-right:6px; }
+  .btn { font-family:'DM Sans',sans-serif; font-size:13px; font-weight:500; padding:6px 14px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface2); color:var(--text); cursor:pointer; transition:all .15s; white-space:nowrap; }
+  .btn:hover { background:var(--border); }
+  .btn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.active-blue { background:var(--blue); border-color:var(--blue); color:#fff; }
+  .btn.primary { background:var(--green); border-color:var(--green); color:#111; font-weight:600; }
+  .btn.primary:hover { opacity:.85; }
+  .btn:disabled { opacity:.35; cursor:default; }
+  .num-input { font-family:'JetBrains Mono',monospace; font-size:13px; width:60px; padding:5px 8px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface2); color:var(--text); text-align:center; }
+  .num-input:focus { outline:none; border-color:var(--accent); }
+  .info { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); margin-left:auto; }
+  kbd { font-family:'JetBrains Mono',monospace; font-size:10px; padding:2px 5px; border:1px solid var(--border); border-radius:3px; background:var(--surface); color:var(--text-dim); margin-left:4px; }
+
+  /* Kanten bar */
+  .kanten-bar { display:flex; align-items:center; gap:12px; padding:6px 16px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; flex-wrap:wrap; }
+  .kante-slot { display:flex; align-items:center; gap:6px; }
+  .kante-slot label.upload-btn { font-family:'JetBrains Mono',monospace; font-size:11px; padding:3px 10px; border:1px dashed var(--border); border-radius:var(--radius); color:var(--text-dim); cursor:pointer; transition:all .15s; }
+  .kante-slot label.upload-btn:hover { border-color:var(--blue); color:var(--blue); }
+  .kante-slot label.upload-btn.loaded { border-style:solid; border-color:var(--green); color:var(--green); }
+  .kante-slot input[type=file] { display:none; }
+  .toggle { display:flex; align-items:center; gap:4px; cursor:pointer; }
+  .toggle input { display:none; }
+  .toggle-track { width:28px; height:16px; border-radius:8px; background:var(--border); position:relative; transition:background .2s; }
+  .toggle input:checked + .toggle-track { background:var(--green); }
+  .toggle-track::after { content:''; position:absolute; top:2px; left:2px; width:12px; height:12px; border-radius:50%; background:#fff; transition:transform .2s; }
+  .toggle input:checked + .toggle-track::after { transform:translateX(12px); }
+
+  /* Workspace */
+  .workspace { flex:1; overflow:auto; display:flex; justify-content:center; padding:20px; background:radial-gradient(circle at 50% 0%,rgba(93,141,232,.03) 0%,transparent 60%),var(--bg); }
+  .canvas-wrap { position:relative; flex-shrink:0; }
+  canvas { display:block; border-radius:var(--radius); box-shadow:0 4px 24px rgba(0,0,0,.4); }
+
+  /* Drop Zone */
+  .dropzone { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; border:2px dashed var(--border); border-radius:12px; margin:40px; transition:border-color .2s,background .2s; }
+  .dropzone.over { border-color:var(--blue); background:var(--blue-dim); }
+  .dropzone-icon { font-size:48px; opacity:.3; }
+  .dropzone-text { font-size:15px; color:var(--text-dim); }
+  .dropzone-text strong { color:var(--blue); cursor:pointer; }
+  .dropzone-hint { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); opacity:.5; }
+</style>
+</head>
+<body>
+
+<div class="toolbar" id="toolbar" style="display:none">
+  <div class="toolbar-group">
+    <span class="toolbar-label">Modus</span>
+    <button class="btn active" id="btn-cut" onclick="setMode('cut')">Schnittlinien <kbd>C</kbd></button>
+    <button class="btn" id="btn-rect" onclick="setMode('rect')">Rechtecke <kbd>R</kbd></button>
+    <button class="btn" id="btn-pan" onclick="setMode('pan')">Verschieben <kbd>V</kbd></button>
+  </div>
+  <div class="toolbar-group">
+    <span class="toolbar-label">Header</span>
+    <input type="number" class="num-input" id="header-input" value="160" min="0" step="10">
+    <span style="font-size:11px;color:var(--text-dim)">px</span>
+    <span class="toolbar-label" style="margin-left:8px">Footer</span>
+    <input type="number" class="num-input" id="footer-input" value="10" min="0" step="10">
+    <span style="font-size:11px;color:var(--text-dim)">px</span>
+  </div>
+  <div class="toolbar-group">
+    <span class="toolbar-label">Breite</span>
+    <input type="number" class="num-input" id="crop-width-input" value="900" min="100" step="10">
+    <span style="font-size:11px;color:var(--text-dim)">px</span>
+    <span class="toolbar-label" style="margin-left:8px">Offset X</span>
+    <input type="number" class="num-input" id="crop-offset-input" value="0" step="5">
+    <span style="font-size:11px;color:var(--text-dim)">px</span>
+  </div>
+  <div class="toolbar-group">
+    <button class="btn" id="btn-undo" onclick="undo()" disabled>Rückgängig <kbd>Z</kbd></button>
+    <button class="btn" id="btn-reset" onclick="resetAll()">Reset</button>
+  </div>
+  <div class="toolbar-group">
+    <button class="btn" id="btn-preview" onclick="togglePreview()">Vorschau <kbd>P</kbd></button>
+    <button class="btn primary" id="btn-export" onclick="exportPNG()">Export PNG <kbd>E</kbd></button>
+  </div>
+  <div class="info" id="info"></div>
+</div>
+
+<!-- Kanten upload bar -->
+<div class="kanten-bar" id="kanten-bar" style="display:none">
+  <span class="toolbar-label">Fotokanten</span>
+
+  <div class="kante-slot">
+    <label class="toggle" title="Kante oben bei Header-Schnitt">
+      <input type="checkbox" id="kante-oben-toggle" checked>
+      <div class="toggle-track"></div>
+    </label>
+    <label class="upload-btn" id="kante-oben-label" for="kante-oben-file">Oben ↑</label>
+    <input type="file" id="kante-oben-file" accept="image/png,image/webp">
+  </div>
+
+  <div class="kante-slot">
+    <label class="toggle" title="Trenner an Schnittstellen">
+      <input type="checkbox" id="kante-trenner-toggle" checked>
+      <div class="toggle-track"></div>
+    </label>
+    <label class="upload-btn" id="kante-trenner-label" for="kante-trenner-file">Trenner ✂</label>
+    <input type="file" id="kante-trenner-file" accept="image/png,image/webp">
+  </div>
+
+  <div class="kante-slot">
+    <label class="toggle" title="Kante unten bei Footer-Schnitt">
+      <input type="checkbox" id="kante-unten-toggle" checked>
+      <div class="toggle-track"></div>
+    </label>
+    <label class="upload-btn" id="kante-unten-label" for="kante-unten-file">Unten ↓</label>
+    <input type="file" id="kante-unten-file" accept="image/png,image/webp">
+  </div>
+</div>
+
+<div class="dropzone" id="dropzone">
+  <div class="dropzone-icon">📸</div>
+  <div class="dropzone-text">Screenshot hierher ziehen oder <strong id="browse-trigger">Datei wählen</strong></div>
+  <div class="dropzone-hint">Mittlere 900px werden 1:1 ausgeschnitten · Header 160px · Footer 10px</div>
+  <input type="file" id="file-input" accept="image/*" style="display:none">
+</div>
+
+<div class="workspace" id="workspace" style="display:none">
+  <div class="canvas-wrap" id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+</div>
+
+<script>
+// ── Kanten images (loaded by user) ──
+const kanteImages = { oben: null, trenner: null, unten: null };
+
+function setupKanteUpload(key) {
+  const fileEl = document.getElementById(`kante-${key}-file`);
+  const labelEl = document.getElementById(`kante-${key}-label`);
+  fileEl.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        kanteImages[key] = img;
+        labelEl.classList.add('loaded');
+        labelEl.textContent = key === 'oben' ? '✓ Oben' : key === 'trenner' ? '✓ Trenner' : '✓ Unten';
+        if (isPreview) redraw();
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+setupKanteUpload('oben');
+setupKanteUpload('trenner');
+setupKanteUpload('unten');
+
+// ── State ──
+let img = null;
+let scale = 1;
+let mode = 'cut';
+let headerCrop = 160;
+let footerCrop = 10;
+let cropWidth = 900;
+let cropOffsetX = 0;
+let cutLines = [];
+let rects = [];
+let historyStack = [];
+let isPreview = false;
+let dragging = null;
+let hoveredCutLine = -1;
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function getCropX() {
+  if (!img) return { left: 0, right: 900, width: 900 };
+  const w = Math.min(cropWidth, img.naturalWidth);
+  const center = img.naturalWidth / 2 + cropOffsetX;
+  const left = Math.max(0, Math.min(img.naturalWidth - w, Math.round(center - w / 2)));
+  return { left, right: left + w, width: w };
+}
+
+// ── File Loading ──
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+document.getElementById('browse-trigger').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadImage(e.target.files[0]); });
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault(); dropzone.classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadImage(f);
+});
+document.addEventListener('paste', e => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) { loadImage(item.getAsFile()); return; }
+  }
+});
+
+function loadImage(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const i = new Image();
+    i.onload = () => {
+      img = i;
+      headerCrop = 160; footerCrop = 10;
+      cropWidth = 900; cropOffsetX = 0;
+      cutLines = []; rects = []; historyStack = [];
+      isPreview = false;
+      document.getElementById('header-input').value = 160;
+      document.getElementById('footer-input').value = 10;
+      document.getElementById('crop-width-input').value = 900;
+      document.getElementById('crop-offset-input').value = 0;
+      document.getElementById('btn-preview').classList.remove('active-blue');
+      initCanvas();
+      dropzone.style.display = 'none';
+      document.getElementById('toolbar').style.display = 'flex';
+      document.getElementById('kanten-bar').style.display = 'flex';
+      document.getElementById('workspace').style.display = 'flex';
+    };
+    i.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function initCanvas() {
+  const maxDisplayWidth = Math.min(window.innerWidth - 80, 1200);
+  scale = maxDisplayWidth / img.naturalWidth;
+  redraw();
+}
+
+// ── Drawing ──
+function redraw() {
+  if (!img) return;
+  if (isPreview) { drawPreview(); return; }
+
+  const dw = Math.round(img.naturalWidth * scale);
+  const dh = Math.round(img.naturalHeight * scale);
+  canvas.width = dw; canvas.height = dh;
+  canvas.style.cursor = mode === 'pan' ? 'grab' : 'crosshair';
+  ctx.drawImage(img, 0, 0, dw, dh);
+
+  const crop = getCropX();
+  const cl = crop.left * scale, cr = crop.right * scale;
+
+  // Dim outside horizontal crop
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, cl, dh);
+  ctx.fillRect(cr, 0, dw - cr, dh);
+  ctx.strokeStyle = '#5d8de8'; ctx.lineWidth = 2; ctx.setLineDash([6,4]);
+  ctx.beginPath(); ctx.moveTo(cl,0); ctx.lineTo(cl,dh); ctx.moveTo(cr,0); ctx.lineTo(cr,dh); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = '11px JetBrains Mono,monospace'; ctx.fillStyle = '#5d8de8';
+  ctx.fillText(crop.width + 'px', cl + 6, 16);
+
+  // Header overlay
+  if (headerCrop > 0) {
+    const hh = headerCrop * scale;
+    ctx.fillStyle = 'rgba(232,93,93,0.3)'; ctx.fillRect(cl, 0, cr - cl, hh);
+    ctx.setLineDash([6,4]); ctx.strokeStyle = '#e85d5d'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cl, hh); ctx.lineTo(cr, hh); ctx.stroke(); ctx.setLineDash([]);
+    ctx.font = '11px JetBrains Mono,monospace'; ctx.fillStyle = '#e85d5d';
+    ctx.fillText('HEADER ' + headerCrop + 'px', cl + 6, hh - 6);
+  }
+
+  // Footer overlay
+  if (footerCrop > 0) {
+    const fy = (img.naturalHeight - footerCrop) * scale;
+    ctx.fillStyle = 'rgba(232,93,93,0.3)'; ctx.fillRect(cl, fy, cr - cl, dh - fy);
+    ctx.setLineDash([6,4]); ctx.strokeStyle = '#e85d5d'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cl, fy); ctx.lineTo(cr, fy); ctx.stroke(); ctx.setLineDash([]);
+    ctx.font = '11px JetBrains Mono,monospace'; ctx.fillStyle = '#e85d5d';
+    ctx.fillText('FOOTER ' + footerCrop + 'px', cl + 6, fy + 14);
+  }
+
+  // Cut zones
+  const sorted = [...cutLines].sort((a,b) => a - b);
+  for (let i = 0; i < sorted.length; i += 2) {
+    const y1 = sorted[i] * scale;
+    const y2 = (sorted[i+1] !== undefined ? sorted[i+1] : img.naturalHeight) * scale;
+    ctx.fillStyle = 'rgba(232,93,93,0.18)'; ctx.fillRect(cl, y1, cr - cl, y2 - y1);
+    ctx.save(); ctx.beginPath(); ctx.rect(cl, y1, cr - cl, y2 - y1); ctx.clip();
+    ctx.strokeStyle = 'rgba(232,93,93,0.15)'; ctx.lineWidth = 1;
+    for (let x = cl - dh; x < cr + dh; x += 12) { ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x + (y2 - y1), y2); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  // Cut lines
+  cutLines.forEach((y, idx) => {
+    const dy = y * scale;
+    ctx.strokeStyle = '#e85d5d'; ctx.lineWidth = idx === hoveredCutLine ? 3 : 2;
+    ctx.setLineDash([8,4]); ctx.beginPath(); ctx.moveTo(cl, dy); ctx.lineTo(cr, dy); ctx.stroke(); ctx.setLineDash([]);
+    ctx.font = '13px sans-serif'; ctx.fillText('✂', cl + 6, dy - 4);
+  });
+
+  // Rects
+  rects.forEach(r => { ctx.strokeStyle = '#e80000'; ctx.lineWidth = 3; ctx.strokeRect(r.x1*scale, r.y1*scale, (r.x2-r.x1)*scale, (r.y2-r.y1)*scale); });
+  if (dragging?.type === 'rect') {
+    ctx.strokeStyle = '#e80000'; ctx.lineWidth = 3; ctx.setLineDash([4,4]);
+    ctx.strokeRect(dragging.x1*scale, dragging.y1*scale, (dragging.x2-dragging.x1)*scale, (dragging.y2-dragging.y1)*scale);
+    ctx.setLineDash([]);
+  }
+  updateInfo();
+}
+
+function drawPreview() {
+  const result = buildExportCanvas();
+  const maxW = Math.min(result.width, window.innerWidth - 80);
+  const dScale = maxW / result.width;
+  canvas.width = Math.round(result.width * dScale);
+  canvas.height = Math.round(result.height * dScale);
+  canvas.style.cursor = 'default';
+  ctx.drawImage(result, 0, 0, canvas.width, canvas.height);
+  updateInfo();
+}
+
+// ── Export with Fotokanten as overlays ──
+function drawKanteOverlay(octx, key, yCenterOrEdge, cw, mode) {
+  // mode: 'center' = centered on y, 'top' = top edge at y, 'bottom' = bottom edge at y
+  const kImg = kanteImages[key];
+  const toggle = document.getElementById(`kante-${key}-toggle`);
+  if (!toggle.checked || !kImg) return;
+  const h = kImg.naturalHeight;
+  let yDraw;
+  if (mode === 'center') yDraw = yCenterOrEdge - h / 2;
+  else if (mode === 'top') yDraw = yCenterOrEdge;
+  else yDraw = yCenterOrEdge - h; // 'bottom'
+  octx.drawImage(kImg, 0, 0, kImg.naturalWidth, h, 0, yDraw, cw, h);
+}
+
+function buildExportCanvas() {
+  const crop = getCropX();
+  const cw = crop.width;
+  const regions = getKeptRegions();
+
+  // Total height is just the content — Kanten don't add space
+  let totalH = 0;
+  regions.forEach(r => totalH += r.end - r.start);
+
+  const offscreen = document.createElement('canvas');
+  offscreen.width = cw;
+  offscreen.height = totalH;
+  const octx = offscreen.getContext('2d');
+
+  // 1) Draw all content regions directly adjacent
+  let yOff = 0;
+  const seamYs = []; // y positions of seams between regions
+  regions.forEach((r, idx) => {
+    const h = r.end - r.start;
+    octx.drawImage(img, crop.left, r.start, cw, h, 0, yOff, cw, h);
+    yOff += h;
+    if (idx < regions.length - 1) seamYs.push(yOff);
+  });
+
+  // 2) Draw Kanten as overlays
+  // Kante oben: overlay at the top edge of the canvas
+  if (headerCrop > 0) drawKanteOverlay(octx, 'oben', 0, cw, 'top');
+
+  // Trenner: overlay centered on each seam
+  seamYs.forEach(seamY => drawKanteOverlay(octx, 'trenner', seamY, cw, 'center'));
+
+  // Kante unten: overlay at the bottom edge of the canvas
+  if (footerCrop > 0) drawKanteOverlay(octx, 'unten', totalH, cw, 'bottom');
+
+  // 3) Red rectangles
+  rects.forEach(rect => {
+    const mapped = mapRectToExport(rect, regions, crop);
+    if (!mapped) return;
+    octx.strokeStyle = '#e80000'; octx.lineWidth = 3;
+    octx.strokeRect(mapped.x, mapped.y, mapped.w, mapped.h);
+  });
+
+  return offscreen;
+}
+
+function getKeptRegions() {
+  let start = headerCrop;
+  const end = img.naturalHeight - footerCrop;
+  const sorted = [...cutLines].sort((a,b) => a - b);
+  const cutZones = [];
+  for (let i = 0; i < sorted.length; i += 2) {
+    cutZones.push({ start: sorted[i], end: sorted[i+1] !== undefined ? sorted[i+1] : end });
+  }
+  cutZones.sort((a,b) => a.start - b.start);
+  const regions = [];
+  let cursor = start;
+  cutZones.forEach(z => {
+    if (z.start > cursor) regions.push({ start: cursor, end: z.start });
+    cursor = Math.max(cursor, z.end);
+  });
+  if (cursor < end) regions.push({ start: cursor, end: end });
+  return regions;
+}
+
+function mapRectToExport(rect, regions, crop) {
+  const x1 = Math.max(rect.x1, crop.left) - crop.left;
+  const x2 = Math.min(rect.x2, crop.right) - crop.left;
+  if (x2 <= x1) return null;
+  const cy = (rect.y1 + rect.y2) / 2;
+  let yOffset = 0;
+  for (let i = 0; i < regions.length; i++) {
+    const r = regions[i];
+    if (cy >= r.start && cy < r.end) {
+      const localY1 = Math.max(rect.y1, r.start);
+      const localY2 = Math.min(rect.y2, r.end);
+      return { x: x1, y: yOffset + (localY1 - r.start), w: x2 - x1, h: localY2 - localY1 };
+    }
+    yOffset += r.end - r.start;
+  }
+  return null;
+}
+
+// ── Interaction ──
+canvas.addEventListener('mousedown', e => {
+  if (isPreview) return;
+  const { ox, oy } = canvasToOriginal(e);
+  if (mode === 'cut') {
+    const nearIdx = findNearCutLine(oy);
+    if (nearIdx >= 0) { saveHistory(); dragging = { type: 'cut-drag', idx: nearIdx }; }
+    else { saveHistory(); cutLines.push(Math.round(oy)); redraw(); }
+  } else if (mode === 'rect') {
+    saveHistory(); dragging = { type: 'rect', x1: ox, y1: oy, x2: ox, y2: oy };
+  } else if (mode === 'pan') {
+    const ws = document.getElementById('workspace');
+    dragging = { type: 'pan', startX: e.clientX, startY: e.clientY, scrollX: ws.scrollLeft, scrollY: ws.scrollTop };
+  }
+});
+canvas.addEventListener('mousemove', e => {
+  if (isPreview) return;
+  const { ox, oy } = canvasToOriginal(e);
+  if (dragging?.type === 'rect') { dragging.x2 = ox; dragging.y2 = oy; redraw(); }
+  else if (dragging?.type === 'cut-drag') { cutLines[dragging.idx] = Math.max(0, Math.min(img.naturalHeight, Math.round(oy))); redraw(); }
+  else if (dragging?.type === 'pan') { const ws = document.getElementById('workspace'); ws.scrollLeft = dragging.scrollX - (e.clientX - dragging.startX); ws.scrollTop = dragging.scrollY - (e.clientY - dragging.startY); }
+  else if (mode === 'cut') { const newHover = findNearCutLine(oy); if (newHover !== hoveredCutLine) { hoveredCutLine = newHover; redraw(); } }
+});
+canvas.addEventListener('mouseup', () => {
+  if (dragging?.type === 'rect') {
+    const r = dragging;
+    if (Math.abs(r.x2 - r.x1) > 5 && Math.abs(r.y2 - r.y1) > 5)
+      rects.push({ x1: Math.min(r.x1,r.x2), y1: Math.min(r.y1,r.y2), x2: Math.max(r.x1,r.x2), y2: Math.max(r.y1,r.y2) });
+  }
+  dragging = null; redraw();
+});
+canvas.addEventListener('dblclick', e => {
+  if (isPreview) return;
+  const { ox, oy } = canvasToOriginal(e);
+  if (mode === 'cut') { const idx = findNearCutLine(oy); if (idx >= 0) { saveHistory(); cutLines.splice(idx, 1); redraw(); } }
+  else if (mode === 'rect') { for (let i = rects.length - 1; i >= 0; i--) { const r = rects[i]; if (ox >= r.x1 && ox <= r.x2 && oy >= r.y1 && oy <= r.y2) { saveHistory(); rects.splice(i, 1); redraw(); break; } } }
+});
+
+function canvasToOriginal(e) { const rect = canvas.getBoundingClientRect(); return { ox: (e.clientX - rect.left) / scale, oy: (e.clientY - rect.top) / scale }; }
+function findNearCutLine(oy) { const threshold = 8 / scale; for (let i = 0; i < cutLines.length; i++) { if (Math.abs(cutLines[i] - oy) < threshold) return i; } return -1; }
+
+// ── Inputs ──
+document.getElementById('header-input').addEventListener('input', e => {
+  const v = parseInt(e.target.value) || 0;
+  if (v !== headerCrop) { saveHistory(); headerCrop = Math.max(0, Math.min(img ? img.naturalHeight : 0, v)); redraw(); }
+});
+document.getElementById('footer-input').addEventListener('input', e => {
+  const v = parseInt(e.target.value) || 0;
+  if (v !== footerCrop) { saveHistory(); footerCrop = Math.max(0, Math.min(img ? img.naturalHeight : 0, v)); redraw(); }
+});
+document.getElementById('crop-width-input').addEventListener('input', e => { cropWidth = Math.max(100, Math.min(img ? img.naturalWidth : 9999, parseInt(e.target.value) || 900)); redraw(); });
+document.getElementById('crop-offset-input').addEventListener('input', e => { cropOffsetX = parseInt(e.target.value) || 0; redraw(); });
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btn-cut').className = 'btn' + (m === 'cut' ? ' active' : '');
+  document.getElementById('btn-rect').className = 'btn' + (m === 'rect' ? ' active' : '');
+  document.getElementById('btn-pan').className = 'btn' + (m === 'pan' ? ' active' : '');
+  if (isPreview) { isPreview = false; document.getElementById('btn-preview').classList.remove('active-blue'); }
+  redraw();
+}
+
+function saveHistory() {
+  historyStack.push({ cutLines: [...cutLines], rects: rects.map(r => ({...r})), headerCrop, footerCrop });
+  if (historyStack.length > 50) historyStack.shift();
+  document.getElementById('btn-undo').disabled = false;
+}
+function undo() {
+  if (!historyStack.length) return;
+  const state = historyStack.pop();
+  cutLines = state.cutLines; rects = state.rects; headerCrop = state.headerCrop; footerCrop = state.footerCrop;
+  document.getElementById('header-input').value = headerCrop;
+  document.getElementById('footer-input').value = footerCrop;
+  document.getElementById('btn-undo').disabled = historyStack.length === 0;
+  redraw();
+}
+function resetAll() {
+  if (!img) return; saveHistory(); cutLines = []; rects = []; headerCrop = 160; footerCrop = 10;
+  document.getElementById('header-input').value = 160; document.getElementById('footer-input').value = 10; redraw();
+}
+function togglePreview() { isPreview = !isPreview; document.getElementById('btn-preview').classList.toggle('active-blue', isPreview); redraw(); }
+function exportPNG() {
+  const result = buildExportCanvas();
+  const link = document.createElement('a'); link.download = 'screenshot_' + Date.now() + '.png'; link.href = result.toDataURL('image/png'); link.click();
+}
+function updateInfo() {
+  if (!img) return;
+  const crop = getCropX(); const regions = getKeptRegions();
+  let totalH = 0; regions.forEach(r => totalH += r.end - r.start);
+  document.getElementById('info').textContent = `Original: ${img.naturalWidth}×${img.naturalHeight} → Export: ${crop.width}×${totalH}px | Schnitte: ${cutLines.length} | Rects: ${rects.length}`;
+}
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  switch (e.key.toLowerCase()) {
+    case 'c': setMode('cut'); break;
+    case 'r': setMode('rect'); break;
+    case 'v': setMode('pan'); break;
+    case 'p': togglePreview(); break;
+    case 'e': exportPNG(); break;
+    case 'z': if (e.ctrlKey || e.metaKey) { e.preventDefault(); } undo(); break;
+  }
+});
+window.addEventListener('resize', () => { if (img) initCanvas(); });
+</script>
+</body>
+</html>
