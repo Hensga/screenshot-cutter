@@ -40,14 +40,6 @@ Upload PNG images with transparency for torn-paper edges. Three slots:
 
 Each slot has a toggle to enable/disable. The images are drawn as overlays — transparent areas show the content underneath.
 
-## Hosting
-
-Single HTML file, no build step. Works with GitHub Pages:
-
-1. Rename to `index.html`
-2. Push to a repo
-3. Enable Pages in repo settings (deploy from `main` branch)
-
 ## License
 
 MIT
