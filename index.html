@@ -29,6 +29,7 @@
   .btn:disabled { opacity:.35; cursor:default; }
   .num-input { font-family:'JetBrains Mono',monospace; font-size:13px; width:60px; padding:5px 8px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface2); color:var(--text); text-align:center; }
   .num-input:focus { outline:none; border-color:var(--accent); }
+  .zoom-display { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text); min-width:48px; text-align:center; }
   .info { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); margin-left:auto; }
   kbd { font-family:'JetBrains Mono',monospace; font-size:10px; padding:2px 5px; border:1px solid var(--border); border-radius:3px; background:var(--surface); color:var(--text-dim); margin-left:4px; }
 
@@ -47,8 +48,8 @@
   .toggle input:checked + .toggle-track::after { transform:translateX(12px); }
 
   /* Workspace */
-  .workspace { flex:1; overflow:auto; display:flex; justify-content:center; padding:20px; background:radial-gradient(circle at 50% 0%,rgba(93,141,232,.03) 0%,transparent 60%),var(--bg); }
-  .canvas-wrap { position:relative; flex-shrink:0; }
+  .workspace { flex:1; overflow:auto; display:flex; padding:20px; background:radial-gradient(circle at 50% 0%,rgba(93,141,232,.03) 0%,transparent 60%),var(--bg); }
+  .canvas-wrap { position:relative; flex-shrink:0; margin:auto; }
   canvas { display:block; border-radius:var(--radius); box-shadow:0 4px 24px rgba(0,0,0,.4); }
 
   /* Drop Zone */
@@ -88,6 +89,13 @@
   <div class="toolbar-group">
     <button class="btn" id="btn-undo" onclick="undo()" disabled>Rückgängig <kbd>Z</kbd></button>
     <button class="btn" id="btn-reset" onclick="resetAll()">Reset</button>
+  </div>
+  <div class="toolbar-group">
+    <span class="toolbar-label">Zoom</span>
+    <button class="btn" id="btn-zoom-out" onclick="zoomStep(-1)">−</button>
+    <span class="zoom-display" id="zoom-display">100%</span>
+    <button class="btn" id="btn-zoom-in" onclick="zoomStep(1)">+</button>
+    <button class="btn" id="btn-zoom-fit" onclick="zoomFit()">Einpassen</button>
   </div>
   <div class="toolbar-group">
     <button class="btn" id="btn-preview" onclick="togglePreview()">Vorschau <kbd>P</kbd></button>
@@ -183,6 +191,10 @@ let historyStack = [];
 let isPreview = false;
 let dragging = null;
 let hoveredCutLine = -1;
+let fitScale = 1;
+const MIN_SCALE = 0.05;
+const MAX_SCALE = 5;
+const ZOOM_FACTOR = 1.15;
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -242,9 +254,13 @@ function loadImage(file) {
 }
 
 function initCanvas() {
-  const maxDisplayWidth = Math.min(window.innerWidth - 80, 1200);
-  scale = maxDisplayWidth / img.naturalWidth;
+  const ws = document.getElementById('workspace');
+  fitScale = Math.min(ws.clientWidth - 40, 1200) / img.naturalWidth;
+  scale = fitScale;
+  ws.scrollLeft = 0;
+  ws.scrollTop = 0;
   redraw();
+  updateZoomDisplay();
 }
 
 // ── Drawing ──
@@ -520,6 +536,45 @@ function updateInfo() {
   document.getElementById('info').textContent = `Original: ${img.naturalWidth}×${img.naturalHeight} → Export: ${crop.width}×${totalH}px | Schnitte: ${cutLines.length} | Rects: ${rects.length}`;
 }
 
+// ── Zoom ──
+function zoomTo(newScale, clientX, clientY) {
+  if (!img || isPreview) return;
+  const ws = document.getElementById('workspace');
+  const canvasRect = canvas.getBoundingClientRect();
+  const imgX = (clientX - canvasRect.left) / scale;
+  const imgY = (clientY - canvasRect.top) / scale;
+  scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
+  redraw();
+  const newRect = canvas.getBoundingClientRect();
+  ws.scrollLeft += (newRect.left + imgX * scale) - clientX;
+  ws.scrollTop += (newRect.top + imgY * scale) - clientY;
+  updateZoomDisplay();
+}
+function zoomStep(direction) {
+  if (!img || isPreview) return;
+  const ws = document.getElementById('workspace');
+  const wsRect = ws.getBoundingClientRect();
+  zoomTo(scale * (direction > 0 ? ZOOM_FACTOR : 1 / ZOOM_FACTOR), wsRect.left + wsRect.width / 2, wsRect.top + wsRect.height / 2);
+}
+function zoomFit() {
+  if (!img) return;
+  const ws = document.getElementById('workspace');
+  fitScale = Math.min(ws.clientWidth - 40, 1200) / img.naturalWidth;
+  scale = fitScale;
+  ws.scrollLeft = 0;
+  ws.scrollTop = 0;
+  redraw();
+  updateZoomDisplay();
+}
+function updateZoomDisplay() {
+  document.getElementById('zoom-display').textContent = Math.round(scale * 100) + '%';
+}
+document.getElementById('workspace').addEventListener('wheel', e => {
+  if (!e.ctrlKey || !img) return;
+  e.preventDefault();
+  zoomTo(scale * (e.deltaY < 0 ? ZOOM_FACTOR : 1 / ZOOM_FACTOR), e.clientX, e.clientY);
+}, { passive: false });
+
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
   switch (e.key.toLowerCase()) {
@@ -529,9 +584,16 @@ document.addEventListener('keydown', e => {
     case 'p': e.preventDefault(); togglePreview(); break;
     case 'e': e.preventDefault(); exportPNG(); break;
     case 'z': e.preventDefault(); undo(); break;
+    case '+': case '=': e.preventDefault(); zoomStep(1); break;
+    case '-': e.preventDefault(); zoomStep(-1); break;
+    case '0': e.preventDefault(); zoomFit(); break;
   }
 });
-window.addEventListener('resize', () => { if (img) initCanvas(); });
+window.addEventListener('resize', () => {
+  if (!img) return;
+  const ws = document.getElementById('workspace');
+  fitScale = Math.min(ws.clientWidth - 40, 1200) / img.naturalWidth;
+});
 </script>
 </body>
 </html>
