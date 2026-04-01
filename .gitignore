@@ -1,0 +1,8 @@
+*.md
+!README.md
+*.docx
+*.doc
+*.odt
+*.ods
+*.odp
+*.pdf
