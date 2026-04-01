@@ -523,12 +523,12 @@ function updateInfo() {
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
   switch (e.key.toLowerCase()) {
-    case 'c': setMode('cut'); break;
-    case 'r': setMode('rect'); break;
-    case 'v': setMode('pan'); break;
-    case 'p': togglePreview(); break;
-    case 'e': exportPNG(); break;
-    case 'z': if (e.ctrlKey || e.metaKey) { e.preventDefault(); } undo(); break;
+    case 'c': e.preventDefault(); setMode('cut'); break;
+    case 'r': e.preventDefault(); setMode('rect'); break;
+    case 'v': e.preventDefault(); setMode('pan'); break;
+    case 'p': e.preventDefault(); togglePreview(); break;
+    case 'e': e.preventDefault(); exportPNG(); break;
+    case 'z': e.preventDefault(); undo(); break;
   }
 });
 window.addEventListener('resize', () => { if (img) initCanvas(); });
