@@ -256,7 +256,7 @@ function loadImage(file) {
 function initCanvas() {
   const ws = document.getElementById('workspace');
   fitScale = Math.min(ws.clientWidth - 40, 1200) / img.naturalWidth;
-  scale = fitScale;
+  scale = 1;
   ws.scrollLeft = 0;
   ws.scrollTop = 0;
   redraw();
